@@ -128,7 +128,7 @@ The application ensures each participant gets a unique fruit identifier:
 
 ## 📁 File Structure
 ```
-njangi_app.py           # Main application file
+app.py                  # Main application file
 njangi_groups.db        # SQLite database (auto-created)
 generated_reports/      # PDF output directory (auto-created)
 ```
