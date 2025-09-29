@@ -1,6 +1,15 @@
+
+---
+
 # Njangi Group Manager
 
-A comprehensive web application for managing Njangi groups (rotating savings and credit associations) with automated payout scheduling, flexible assignment modes, and professional PDF report generation.
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://njangi.streamlit.app/)
+
+A comprehensive web application for managing **Njangi groups** (rotating savings and credit associations) with automated payout scheduling, flexible assignment modes, and professional PDF report generation.
+
+> ✨ **Try it live**: [https://njangi.streamlit.app/](https://njangi.streamlit.app/)
+
+---
 
 ## Table of Contents
 - [Overview](#overview)
@@ -11,350 +20,212 @@ A comprehensive web application for managing Njangi groups (rotating savings and
 - [Database Schema](#database-schema)
 - [PDF Report Structure](#pdf-report-structure)
 - [Configuration](#configuration)
-- [API Reference](#api-reference)
 - [Contributing](#contributing)
 - [License](#license)
 
+---
+
 ## Overview
 
-Njangi Group Manager is a Streamlit-based web application designed to streamline the administration of traditional rotating savings and credit associations (ROSCAs). The application automates complex payout calculations, manages participant assignments through a unique fruit-based identification system, and generates comprehensive PDF reports for group transparency and record-keeping.
+The **Njangi Group Manager** is a Streamlit-based web application designed to simplify the administration of traditional rotating savings and credit associations (ROSCAs), commonly known as *Njangi* in parts of Africa.
 
-The application addresses common challenges in Njangi group management including:
-- Manual calculation errors in payout schedules
-- Participant tracking and assignment conflicts (especially with duplicate names)
-- Professional documentation and reporting
-- Data persistence and group configuration management
-- Flexible assignment strategies for different group needs
+It solves real-world challenges such as:
+- Manual errors in payout calculations
+- Participant tracking (especially with duplicate names)
+- Lack of professional documentation
+- Loss of group data between meetings
+- Inflexible assignment strategies
+
+The app uses a **fruit-based identification system** to uniquely map participants—ensuring clarity during physical fruit-picking sessions—while generating polished, printable PDF reports for transparency and record-keeping.
+
+---
 
 ## Features
 
 ### Core Functionality
-- **Multi-Group Management**: Create, persist, and manage multiple Njangi groups simultaneously
-- **Intelligent Payout Scheduling**: Automated calculation of monthly collections, payouts, and residue management
-- **Unique Participant Assignment**: Fruit-based identification system with conflict prevention
-- **Professional PDF Reports**: Multi-section reports with detailed schedules, summaries, and branding
-- **Data Persistence**: SQLite-based storage for group configurations and historical data
+- ✅ **Multi-group management** with persistent SQLite storage  
+- 📊 **Automated payout scheduling** based on contributions, group size, and duration  
+- 🍎 **Unique fruit assignment** per participant (110+ fruits available)  
+- 📄 **Professional PDF reports** with schedules, summaries, and rules  
+- 💾 **Auto-save & load** of group progress  
 
-### Advanced Features
-- **Three Assignment Modes**:
-  - **Automatic**: Fully random assignment generated at PDF creation time
-  - **Manual**: Complete user control over all participant assignments
-  - **Semi-Automatic**: Lock specific participants to months, with remaining spots filled randomly at PDF generation
-- **Duplicate Name Handling**: Intelligent UI with `[1]`, `[2]` suffixes for identical names during assignment, while preserving original names in PDF output
-- **Interactive Fruit Assignment**: Real-time constraint validation preventing duplicate assignments
-- **Flexible Group Parameters**: Configurable group sizes, contribution amounts, and cycle durations
-- **Comprehensive Validation**: Input validation with user feedback and error prevention
-- **Responsive Design**: Clean, tabbed interface optimized for various screen sizes
-- **Auto-save Functionality**: Automatic progress saving with conflict resolution
+### Advanced Capabilities
+- **Three assignment modes**:
+  - **Automatic**: Fully random assignment at PDF generation
+  - **Manual**: Full user control over who gets paid when
+  - **Semi-Automatic**: Lock key participants, auto-fill the rest
+- **Duplicate name handling**: UI shows `Name [1]`, `Name [2]` for clarity—but PDFs preserve original names
+- **Real-time validation**: Prevents duplicate fruits, over-assignments, or invalid group sizes
+- **Loan & interest support**: Optional interest-bearing loans with configurable rates and terms
+- **Custom group rules**: Add your own bylaws (e.g., penalties, attendance policies)
+- **Responsive tabbed interface**: Clean UX across desktop and tablet
+
+---
 
 ## Installation
 
 ### Prerequisites
-- Python 3.8 or higher
-- pip package manager
-
-### Dependencies
-Install the required packages using pip:
-
-```bash
-pip install streamlit
-pip install reportlab
-```
-
-Or install from requirements file:
-```bash
-pip install -r requirements.txt
-```
+- Python 3.8+
+- `pip`
 
 ### Setup
-1. Clone the repository:
 ```bash
-git clone <repository-url>
+# Clone (if hosted on GitHub)
+git clone https://github.com/your-username/njangi-group-manager.git
 cd njangi-group-manager
-```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+# Install dependencies
+pip install streamlit reportlab
 
-3. Launch the application:
-```bash
+# Run the app
 streamlit run app.py
 ```
 
-The application will automatically open in your default web browser at `http://localhost:8501`.
+> 💡 **Note**: The script includes a self-launcher. You can also run `python app.py`, and it will auto-start the Streamlit server.
 
-### Alternative Launch Method
-The application includes automatic Streamlit launcher functionality. You can also run:
-```bash
-python app.py
-```
-
-This will automatically detect the runtime environment and launch the Streamlit server with proper environment configuration.
-
-## Usage
-
-### Application Workflow
-
-#### 1. Group Setup
-Configure fundamental group parameters:
-- **Group Name**: Unique identifier for the Njangi group
-- **Participant Count**: Number of group members (1 to 110 maximum)
-- **Monthly Contribution**: Individual contribution amount in FCFA
-- **Duration**: Cycle length in months
-- **Start Date**: Beginning month and year for the group cycle
-
-The application provides real-time calculation of:
-- Monthly total collection
-- Individual payout amounts
-- Total pool value
-
-#### 2. Participant Management
-Manage group members and assignments:
-- **Participant Entry**: Individual name input with auto-completion
-- **Fruit Assignment**: Unique fruit identifier assignment with conflict prevention
-- **Bulk Operations**: Random assignment and auto-naming utilities
-- **Progress Saving**: Incremental save functionality
-
-The fruit assignment system ensures:
-- No duplicate fruit assignments
-- Interactive reassignment when conflicts occur
-- Visual feedback for assignment status
-
-#### 3. Assignment Mode Selection
-Choose the appropriate assignment strategy:
-
-- **Automatic Mode**: 
-  - System randomly assigns participants to months when generating PDF
-  - No manual intervention required
-  - Perfect for groups wanting complete automation
-
-- **Manual Mode**: 
-  - Full control over every participant assignment
-  - Handles duplicate names with `[1]`, `[2]` suffixes in UI
-  - PDF shows only original names
-  - All participants must be assigned before PDF generation
-
-- **Semi-Automatic Mode**: 
-  - Lock specific participants to specific months
-  - Remaining spots are filled randomly at PDF generation time
-  - Perfect balance of control and automation
-  - Each PDF generation produces a new random assignment for unlocked spots
-
-#### 4. Report Generation
-Create professional documentation:
-- **Validation Checks**: Comprehensive input validation
-- **Summary Preview**: Pre-generation group metrics review
-- **PDF Creation**: Professional multi-section reports
-- **Download Management**: Secure file download with custom naming
-
-## Application Architecture
-
-### Core Components
-
-#### DatabaseManager Class
-Handles all database operations including:
-- SQLite database initialization
-- Group CRUD operations
-- Session management
-- Data serialization/deserialization
-
-#### Njangi Class
-Core business logic implementation:
-- Payout calculation algorithms
-- Schedule generation
-- PDF report compilation
-- Participant management with duplicate handling
-- Semi-automatic assignment logic
-
-#### Streamlit Interface
-Multi-tab interface providing:
-- Session state management
-- Form validation and user feedback
-- Interactive components with real-time updates
-- File download capabilities
-
-### Key Algorithms
-
-#### Unique Participant Handling
-The application implements sophisticated duplicate name handling:
-- Internal unique identifier generation using indices
-- Display name preservation for PDF output (original names only)
-- Conflict resolution in payout assignments
-- `[1]`, `[2]` suffixes shown only in UI for clarity
-
-#### Assignment Mode Logic
-- **Automatic**: Random shuffle of all participants at PDF generation
-- **Manual**: User-defined assignments stored as participant indices
-- **Semi-Automatic**: Locked assignments preserved, remaining participants randomly shuffled and assigned at PDF generation
-
-#### Fruit Assignment Logic
-Interactive constraint system ensuring:
-- Real-time validation of unique assignments
-- Automatic reassignment cascade when conflicts occur
-- Preservation of user selections where possible
-
-## Database Schema
-
-### njangi_groups Table
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER PRIMARY KEY | Unique group identifier |
-| name | TEXT UNIQUE NOT NULL | Group name |
-| size | INTEGER NOT NULL | Number of participants |
-| loan | INTEGER NOT NULL | Monthly contribution amount |
-| time | INTEGER NOT NULL | Duration in months |
-| base | INTEGER | Payout amount per participant |
-| start_month | INTEGER | Starting month (1-12) |
-| start_year | INTEGER | Starting year |
-| participants | TEXT | JSON array of participant names |
-| fruits | TEXT | JSON array of assigned fruits |
-| manual_assignments | TEXT | JSON object of manual/semi-auto assignments (by index) |
-| created_at | TIMESTAMP | Creation timestamp |
-| updated_at | TIMESTAMP | Last modification timestamp |
-
-### njangi_sessions Table
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER PRIMARY KEY | Session identifier |
-| group_id | INTEGER | Foreign key to njangi_groups |
-| session_data | TEXT | JSON session information |
-| created_at | TIMESTAMP | Session creation time |
-
-## PDF Report Structure
-
-Generated reports include five main sections:
-
-1. **Title Section**: Group identification and period information
-2. **Assigned Fruits Table**: Complete list of fruit identifiers
-3. **Participants & Fruits Table**: Member details with monthly tracking columns
-4. **Payout Schedule Table**: Detailed monthly breakdown including:
-   - Monthly collections
-   - Available funds
-   - Number of payouts
-   - Recipient names (original names only, no `[1]`, `[2]` suffixes)
-   - Residue calculations
-5. **Summary Section**: Financial totals and key metrics
-
-### Report Features
-- Professional branding with headers/footers
-- Color-coded tables for easy reading
-- Automatic page breaks and formatting
-- Watermark protection
-- Comprehensive financial summaries
-- Consistent output regardless of assignment mode used
-
-## Configuration
-
-### Customization Options
-
-#### Fruit Master List
-Modify the `fruits_master` list to customize available fruits:
-```python
-fruits_master = [
-    'custom_fruit_1', 'custom_fruit_2', ...
-]
-```
-
-#### Database Configuration
-Change database location by modifying the DatabaseManager initialization:
-```python
-db_manager = DatabaseManager("custom_database_name.db")
-```
-
-#### PDF Styling
-Customize report appearance in the `generate_pdf()` method:
-- Color schemes and themes
-- Table layouts and column widths
-- Font styles and sizes
-- Header/footer content
-
-#### Financial Calculations
-Modify calculation formulas in the Njangi class:
-- Base payout calculations
-- Residue handling logic
-- Collection algorithms
-
-## API Reference
-
-### DatabaseManager Methods
-- `init_database()`: Initialize database schema
-- `save_group()`: Persist group configuration
-- `load_group()`: Retrieve group data
-- `get_all_groups()`: List all saved groups
-- `delete_group()`: Remove group from database
-
-### Njangi Methods
-- `monthly_collection()`: Calculate monthly total
-- `pool()`: Calculate total pool value
-- `generate_pdf()`: Create comprehensive report
-- `_semi_automatic_assign()`: Generate semi-automatic assignments
-
-### Session State Variables
-- `current_group_data`: Active group configuration
-- `participants`: Participant name list
-- `fruits`: Assigned fruit list
-- `fruit_keys`: Fruit assignment tracking
-- `assignment_mode`: Current mode ('automatic', 'manual', 'semi-automatic')
-- `manual_assignments`: Assignment data stored as participant indices
-
-## Development
-
-### Code Structure
-```
-app.py                  # Main application file
-├── DatabaseManager     # Database operations class
-├── Njangi             # Core business logic class
-├── Session Management # Streamlit state management
-└── UI Components      # Interface tabs and forms
-```
-
-### Testing
-Run the application in development mode:
-```bash
-streamlit run app.py --server.runOnSave true
-```
-
-### Debugging
-Enable debug mode with:
-```bash
-streamlit run app.py --server.enableXsrfProtection false --server.enableCORS false
-```
-
-## Contributing
-
-### Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-### Code Standards
-- Follow PEP 8 style guidelines
-- Add docstrings for all methods
-- Include type hints where appropriate
-- Maintain backward compatibility
-
-### Issue Reporting
-Please report issues with:
-- Detailed reproduction steps
-- System environment information
-- Expected vs. actual behavior
-- Screenshots if applicable
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
-
-## Acknowledgments
-
-- Built with Streamlit for rapid web application development
-- ReportLab for professional PDF generation
-- SQLite for reliable data persistence
-- Designed for Njangi communities worldwide
+The app opens at: `http://localhost:8501`
 
 ---
 
-**Developed by Team [zeru] - "steady - calm - driven"**
+## Usage
+
+### Step-by-Step Workflow
+
+1. **Group Setup**  
+   - Enter group name, size (1–110), monthly contribution (FCFA), duration (months), and start date.
+   - View auto-calculated metrics: monthly pool, individual payout, total collected.
+
+2. **Participants & Fruits**  
+   - Add participant names (or auto-generate as "Member 1", etc.)
+   - Assign unique fruits from a curated list of 110+ global fruits
+   - Use “Random Fruits” or “Auto-name” for quick setup
+
+3. **Payout Assignment**  
+   Choose a mode:
+   - **Automatic**: No input needed—randomized at PDF time
+   - **Manual/Semi-Auto**: Drag-and-drop participants into months using a multiselect UI
+   - See real-time counts of assigned/unassigned members
+
+4. **Add Rules (Optional)**  
+   - Define group bylaws (e.g., “Late fee: 500 FCFA”)
+
+5. **Enable Loans (Optional)**  
+   - Toggle interest-based lending
+   - Set annual interest rate (%) and loan duration (months)
+
+6. **Generate Report**  
+   - Click **Generate PDF Report**
+   - Download a branded, multi-page PDF with:
+     - Fruit list
+     - Participant-to-fruit mapping
+     - Monthly payout schedule
+     - Financial summary
+     - Rules & loan details (if enabled)
+
+---
+
+## Application Architecture
+
+### Key Classes
+- **`DatabaseManager`**: Handles SQLite CRUD operations with schema migration support
+- **`Njangi`**: Core logic for payout calculations, assignment modes, and PDF generation
+- **Streamlit UI**: 6-tab interface with session state management
+
+### Assignment Logic
+- **Fruit uniqueness** is enforced via real-time dropdown filtering
+- **Manual assignments** store participant *indices* (not names)—robust to name changes
+- **Semi-auto mode** locks user selections and fills gaps randomly at PDF time
+
+### PDF Engine
+- Built with **ReportLab**
+- Includes watermark, header/footer, color-coded tables, and page breaks
+- Outputs clean, print-ready documents
+
+---
+
+## Database Schema
+
+### `njangi_groups`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Primary key |
+| `name` | TEXT | Unique group name |
+| `size`, `loan`, `time` | INTEGER | Core parameters |
+| `base` | INTEGER | Payout = `loan × time` |
+| `start_month`, `start_year` | INTEGER | Cycle start |
+| `participants`, `fruits` | TEXT (JSON) | Arrays of strings |
+| `manual_assignments` | TEXT (JSON) | `{ "month_0": [2,5], ... }` |
+| `rules` | TEXT | Custom group rules |
+| `has_loans`, `interest_rate`, `loan_duration` | Flags & numbers | Loan settings |
+| `created_at`, `updated_at` | TIMESTAMP | Audit trail |
+
+### `njangi_sessions`  
+*(Reserved for future use—currently unused in UI)*
+
+---
+
+## PDF Report Structure
+
+Each report includes:
+1. **Cover**: Group name, period, contribution info  
+2. **Fruit Sheet**: List of all assigned fruits (for physical distribution)  
+3. **Participants & Fruits**: Table linking names to fruits + monthly payout columns  
+4. **Payout Schedule**: Month-by-month breakdown of:
+   - Collections
+   - Available funds
+   - Payout count
+   - Recipient names (original only)
+   - Residue
+5. **Rules Section** (if provided)  
+6. **Loan Summary** (if enabled)  
+7. **Financial Summary**: Totals, residue, potential interest
+
+> 🎨 All PDFs include a subtle “auto-generated” watermark and Team [zeru] branding.
+
+---
+
+## Configuration
+
+### Customize Easily
+- **Fruits**: Edit the `fruits_master` list in `app.py`
+- **Branding**: Modify header/footer in `generate_pdf()`
+- **Styling**: Adjust colors, fonts, and spacing in ReportLab styles
+- **DB Path**: Change `db_name` in `DatabaseManager` init
+
+---
+
+## Contributing
+
+We welcome contributions! Please:
+1. Fork the repo
+2. Create a feature branch
+3. Write clear, PEP-8-compliant code
+4. Test thoroughly
+5. Submit a PR
+
+> 🐞 Found a bug? Open an issue with steps to reproduce.
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgments
+
+- Built with ❤️ using **Streamlit**, **ReportLab**, and **SQLite**
+- Inspired by traditional African ROSCA systems
+- Fruit list curated from global agricultural sources
+
+---
+
+**Developed by Team [zeru]**  
+*“steady – calm – driven”*
+
+🔗 **Live Demo**: [https://njangi.streamlit.app/](https://njangi.streamlit.app/)
+
+--- 
+
+This README accurately reflects all features in your code—including semi-automatic mode, duplicate name handling, loan interest, fruit constraints, PDF structure, and database design—while providing clear installation and usage guidance.
