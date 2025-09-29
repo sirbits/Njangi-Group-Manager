@@ -1269,13 +1269,5 @@ def main():
             st.info(f"Missing: {', '.join(missing_items)}")
 
 if __name__ == "__main__":
-    if os.environ.get("STREAMLIT_RUN") == "true":
-        main()
-    else:
-        if os.environ.get("STREAMLIT_LAUNCHED") == "true":
-            sys.exit()
-        env = os.environ.copy()
-        env["STREAMLIT_RUN"] = "true"
-        env["STREAMLIT_LAUNCHED"] = "true"
-        subprocess.Popen([sys.executable, "-m", "streamlit", "run", __file__], env=env)
-        sys.exit()
+   main()
+
