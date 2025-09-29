@@ -144,6 +144,93 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
+# NEW: Generate Fruit Assignment Sheet PDF
+def generate_fruit_sheet_pdf(group_name, fruits, filename='fruit_sheet.pdf', start_month=1, start_year=2025, time=12):
+    doc = SimpleDocTemplate(
+        filename, pagesize=letter,
+        leftMargin=50, rightMargin=50, topMargin=130, bottomMargin=70  # Match main PDF
+    )
+    
+    # Use the SAME styles as in Njangi.generate_pdf()
+    st_styles = getSampleStyleSheet()
+    st_styles.add(ParagraphStyle('TitleBig', fontSize=22, fontName='Helvetica-Bold',
+                                 textColor=colors.HexColor('#2C3E50'), alignment=1, spaceAfter=12))
+    st_styles.add(ParagraphStyle('Sub', fontSize=11, fontName='Helvetica',
+                                 textColor=colors.HexColor('#7F8C8D'), alignment=1,
+                                 spaceBefore=24, spaceAfter=24))
+    st_styles.add(ParagraphStyle('SecTitle', fontSize=14, fontName='Helvetica-Bold',
+                                 textColor=colors.HexColor('#34495E'),
+                                 spaceBefore=0, spaceAfter=12, leftIndent=-7, alignment=0))
+    
+    elems = [
+        Paragraph(f"{group_name} – Fruit Assignment Sheet", st_styles['TitleBig']),
+        Paragraph(
+            f"Period: {months[start_month][:3]}-{start_year} to "
+            f"{months[(start_month + time - 2) % 12 + 1][:3]}-"
+            f"{start_year + ((start_month + time - 2) // 12)}",
+            st_styles['Sub']
+        ),
+        Paragraph("Distribute one fruit per participant. Participants will later pick their fruit physically.", st_styles['Sub'])
+    ]
+    
+    # Fruit table — styled IDENTICALLY to "Assigned Fruits" in main PDF
+    fruits_data = [["S/N", "Fruit"]] + [[str(i + 1), fruits[i]] for i in range(len(fruits))]
+    t1 = Table(fruits_data, colWidths=[40, doc.width - 40])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('LEFTPADDING', (0, 1), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#AED6F1')),
+    ]))
+    elems += [t1, Spacer(1, 24)]
+    
+    # Footer note (as subtext)
+    note = Paragraph(
+        "<i>Note: After participants pick fruits, return to the platform to enter names and map them to fruits.</i>",
+        st_styles['Sub']
+    )
+    elems.append(note)
+
+    def watermark(c, _doc):
+        c.saveState()
+        c.setFont("Helvetica-Bold", 70)
+        c.setFillColor(colors.HexColor("#F7F9F9"))
+        c.translate(letter[0] / 2, letter[1] / 2)
+        c.rotate(45)
+        c.drawCentredString(0, 0, "auto-generated")
+        c.restoreState()
+
+    def header_footer(c, _doc):
+        c.saveState()
+        c.setStrokeColor(colors.HexColor('#3498DB'))
+        c.setLineWidth(1.2)
+        c.line(50, _doc.height + _doc.topMargin + 8,
+               letter[0] - 50, _doc.height + _doc.topMargin + 8)
+        c.setFillColor(colors.HexColor('#FFFFFF'))
+        c.circle(68, _doc.height + _doc.topMargin + 32, 18, fill=1, stroke=0)
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(colors.HexColor('#3498DB'))
+        c.drawCentredString(68, _doc.height + _doc.topMargin + 29, "[ Tz ]")
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.HexColor('#2C3E50'))
+        c.drawString(95, _doc.height + _doc.topMargin + 27, group_name)
+        c.setStrokeColor(colors.HexColor('#B9770E'))
+        c.line(50, 55, letter[0] - 50, 55)
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.HexColor('#ABB2B9'))
+        c.drawCentredString(letter[0] / 2, 45, f"Page {c.getPageNumber()}")
+        c.setFont("Helvetica", 8)
+        c.drawString(50, 45, "Team [ zeru ]")
+        sig = "steady - calm - driven"
+        c.drawString(letter[0] - 50 - c.stringWidth(sig, "Helvetica", 8), 45, sig)
+        c.restoreState()
+        watermark(c, _doc)
+
+    doc.build(elems, onFirstPage=header_footer, onLaterPages=header_footer)
+    return filename
+
 class Njangi:
     def __init__(self, size, loan, time, base=None, participants=None, fruits=None, name=None, manual_assignments=None, assignment_mode='automatic'):
         self.name = name
@@ -600,6 +687,38 @@ def main():
                f"- Monthly Collection: {size * loan:,} FCFA\n"
                f"- Payout per Person: {base:,} FCFA\n"
                f"- Total Pool: {total_pool:,} FCFA")
+        
+        # ✅ NEW: Generate Fruit Sheet button
+        if nname and size > 0:
+            if st.button("📄 Generate Fruit Assignment Sheet", type="primary", use_container_width=True):
+                with st.spinner("Generating Fruit Sheet..."):
+                    try:
+                        # Preserve existing fruits if available and size matches
+                        if len(st.session_state.fruits) == size:
+                            fruits = st.session_state.fruits
+                        else:
+                            fruits = random.sample(fruits_master, size)
+                        success = st.session_state.db_manager.save_group(
+                            nname, size, loan, time, base, start_month, start_year,
+                            [], fruits, None
+                        )
+                        if success:
+                            st.success("✅ Progress saved!")
+                        filename = f"{nname.replace(' ', '_')}_fruit_sheet.pdf"
+                        generate_fruit_sheet_pdf(nname, fruits, filename)
+                        with open(filename, "rb") as f:
+                            st.download_button(
+                                label="📥 Download Fruit Sheet",
+                                data=f,
+                                file_name=filename,
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        else:
+            st.info("ℹ️ Enter group name and size to generate Fruit Assignment Sheet.")
+
     with tab2:
         st.subheader("Participants and Fruit Assignment")
         if size > 0:
@@ -609,6 +728,7 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**👥 Participants**")
+                # Preserve existing participants when size changes
                 if len(st.session_state.participants) != size:
                     current_participants = st.session_state.participants[:size]
                     while len(current_participants) < size:
@@ -622,10 +742,18 @@ def main():
                     )
             with col2:
                 st.markdown("**🍎 Fruit Assignment**")
-                if len(st.session_state.fruits) != size or not st.session_state.fruits:
-                    available_fruits = fruits_master.copy()
+                # Preserve existing fruits when size changes
+                if len(st.session_state.fruits) != size:
+                    current_fruits = st.session_state.fruits[:size]
+                    used_fruits = set(current_fruits)
+                    available_fruits = [f for f in fruits_master if f not in used_fruits]
                     random.shuffle(available_fruits)
-                    st.session_state.fruits = available_fruits[:size]
+                    while len(current_fruits) < size:
+                        if available_fruits:
+                            current_fruits.append(available_fruits.pop())
+                        else:
+                            current_fruits.append(f"fruit_{len(current_fruits)}")
+                    st.session_state.fruits = current_fruits
                 current_used_fruits = set()
                 for i in range(size):
                     fruits_assigned_before = st.session_state.fruits[:i]
