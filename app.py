@@ -12,6 +12,19 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
+# Custom CSS to fix X button alignment - push to right edge
+st.markdown("""
+<style>
+    /* Only target the specific button in the assignment tab */
+    div[data-testid="stHorizontalBlock"]:has(button[key^="remove_"]) > div:last-child {
+        width: 100% !important;
+        flex: 1 1 auto !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 fruits_master = [
     'ackee', 'apple', 'apricot', 'avocado', 'banana', 'baobab', 'black sapote',
     'blackberry', 'blueberry', 'boysenberry', 'breadfruit', 'cantaloupe', 'carambola',
@@ -43,6 +56,7 @@ class DatabaseManager:
     def __init__(self, db_name="njangi_groups.db"):
         self.db_name = db_name
         self.init_database()
+
     def init_database(self):
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -59,6 +73,10 @@ class DatabaseManager:
                 participants TEXT,
                 fruits TEXT,
                 manual_assignments TEXT,
+                rules TEXT,
+                has_loans INTEGER DEFAULT 0,
+                interest_rate REAL DEFAULT 0.0,
+                loan_duration INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -72,35 +90,45 @@ class DatabaseManager:
                 FOREIGN KEY (group_id) REFERENCES njangi_groups (id)
             )
         ''')
-        try:
-            cursor.execute("SELECT manual_assignments FROM njangi_groups LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE njangi_groups ADD COLUMN manual_assignments TEXT")
-            conn.commit()
+
+        # Add missing columns if they don't exist
+        for col, default in [("rules", "''"), ("has_loans", "0"), ("interest_rate", "0.0"), ("loan_duration", "1")]:
+            try:
+                cursor.execute(f"SELECT {col} FROM njangi_groups LIMIT 1")
+            except sqlite3.OperationalError:
+                col_type = 'REAL' if col == 'interest_rate' else ('INTEGER' if col in ['has_loans', 'loan_duration'] else 'TEXT')
+                cursor.execute(f"ALTER TABLE njangi_groups ADD COLUMN {col} {col_type} DEFAULT {default}")
         conn.commit()
         conn.close()
-    def save_group(self, name, size, loan, time, base, start_month, start_year, participants, fruits, manual_assignments=None):
+
+    def save_group(self, name, size, loan, time, base, start_month, start_year, participants, fruits, manual_assignments=None, rules="", has_loans=False, interest_rate=0.0, loan_duration=1):
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         try:
             cursor.execute('''
                 INSERT OR REPLACE INTO njangi_groups 
-                (name, size, loan, time, base, start_month, start_year, participants, fruits, manual_assignments, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (name, size, loan, time, base, start_month, start_year, 
-                  json.dumps(participants), json.dumps(fruits), json.dumps(manual_assignments) if manual_assignments else None, datetime.now()))
+                (name, size, loan, time, base, start_month, start_year, participants, fruits, manual_assignments, rules, has_loans, interest_rate, loan_duration, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                name, size, loan, time, base, start_month, start_year,
+                json.dumps(participants), json.dumps(fruits), 
+                json.dumps(manual_assignments) if manual_assignments else None,
+                rules, int(has_loans), float(interest_rate), int(loan_duration),
+                datetime.now()
+            ))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
         finally:
             conn.close()
+
     def load_group(self, name):
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         cursor.execute('''
             SELECT id, name, size, loan, time, base, start_month, start_year, 
-                   participants, fruits, manual_assignments 
+                   participants, fruits, manual_assignments, rules, has_loans, interest_rate, loan_duration
             FROM njangi_groups WHERE name = ?
         ''', (name,))
         result = cursor.fetchone()
@@ -124,12 +152,17 @@ class DatabaseManager:
                     'start_year': result[7],
                     'participants': json.loads(result[8]) if result[8] else [],
                     'fruits': json.loads(result[9]) if result[9] else [],
-                    'manual_assignments': manual_assignments_data
+                    'manual_assignments': manual_assignments_data,
+                    'rules': result[11] or "",
+                    'has_loans': bool(result[12]),
+                    'interest_rate': float(result[13]) if result[13] is not None else 0.0,
+                    'loan_duration': int(result[14]) if result[14] is not None else 1
                 }
             except Exception as e:
-                st.error(f"Error loading group  {str(e)}")
+                st.error(f"Error loading group: {str(e)}")
                 return None
         return None
+
     def get_all_groups(self):
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -137,6 +170,7 @@ class DatabaseManager:
         results = cursor.fetchall()
         conn.close()
         return results
+
     def delete_group(self, name):
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -144,26 +178,20 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-# NEW: Generate Fruit Assignment Sheet PDF
 def generate_fruit_sheet_pdf(group_name, fruits, filename='fruit_sheet.pdf', start_month=1, start_year=2025, time=12):
     doc = SimpleDocTemplate(
         filename, pagesize=letter,
-        leftMargin=50, rightMargin=50, topMargin=130, bottomMargin=70  # Match main PDF
+        leftMargin=50, rightMargin=50, topMargin=130, bottomMargin=70
     )
-    
-    # Use the SAME styles as in Njangi.generate_pdf()
     st_styles = getSampleStyleSheet()
     st_styles.add(ParagraphStyle('TitleBig', fontSize=22, fontName='Helvetica-Bold',
                                  textColor=colors.HexColor('#2C3E50'), alignment=1, spaceAfter=12))
     st_styles.add(ParagraphStyle('Sub', fontSize=11, fontName='Helvetica',
                                  textColor=colors.HexColor('#7F8C8D'), alignment=1,
                                  spaceBefore=24, spaceAfter=24))
-    st_styles.add(ParagraphStyle('SecTitle', fontSize=14, fontName='Helvetica-Bold',
-                                 textColor=colors.HexColor('#34495E'),
-                                 spaceBefore=0, spaceAfter=12, leftIndent=-7, alignment=0))
     
     elems = [
-        Paragraph(f"{group_name} – Fruit Assignment Sheet", st_styles['TitleBig']),
+        Paragraph(f"{group_name}", st_styles['TitleBig']),
         Paragraph(
             f"Period: {months[start_month][:3]}-{start_year} to "
             f"{months[(start_month + time - 2) % 12 + 1][:3]}-"
@@ -173,7 +201,6 @@ def generate_fruit_sheet_pdf(group_name, fruits, filename='fruit_sheet.pdf', sta
         Paragraph("Distribute one fruit per participant. Participants will later pick their fruit physically.", st_styles['Sub'])
     ]
     
-    # Fruit table — styled IDENTICALLY to "Assigned Fruits" in main PDF
     fruits_data = [["S/N", "Fruit"]] + [[str(i + 1), fruits[i]] for i in range(len(fruits))]
     t1 = Table(fruits_data, colWidths=[40, doc.width - 40])
     t1.setStyle(TableStyle([
@@ -186,7 +213,6 @@ def generate_fruit_sheet_pdf(group_name, fruits, filename='fruit_sheet.pdf', sta
     ]))
     elems += [t1, Spacer(1, 24)]
     
-    # Footer note (as subtext)
     note = Paragraph(
         "<i>Note: After participants pick fruits, return to the platform to enter names and map them to fruits.</i>",
         st_styles['Sub']
@@ -232,12 +258,19 @@ def generate_fruit_sheet_pdf(group_name, fruits, filename='fruit_sheet.pdf', sta
     return filename
 
 class Njangi:
-    def __init__(self, size, loan, time, base=None, participants=None, fruits=None, name=None, manual_assignments=None, assignment_mode='automatic'):
+    def __init__(self, size, loan, time, base=None, participants=None, fruits=None, name=None,
+                 manual_assignments=None, assignment_mode='automatic', rules="", has_loans=False,
+                 interest_rate=0.0, loan_duration=1):
         self.name = name
         self.size, self.loan, self.time = size, loan, time
         self.base = loan * time if base is None else base
         self.manual_assignments = manual_assignments
-        self.assignment_mode = assignment_mode  # 'automatic', 'manual', or 'semi-automatic'
+        self.assignment_mode = assignment_mode
+        self.rules = rules
+        self.has_loans = has_loans
+        self.interest_rate = interest_rate
+        self.loan_duration = loan_duration
+
         if size < time:
             sys.exit("Error: size >= time")
         self.fruits = fruits if fruits else random.sample(fruits_master, size)
@@ -249,14 +282,14 @@ class Njangi:
             self.people = [f"Person {i}" for i in range(1, size + 1)]
         self.fruit_to_participant_map = dict(zip(self.fruits, self.people))
         self.participant_to_fruit_map = dict(zip(self.people, self.fruits))
-    
+
     def monthly_collection(self):
         return self.size * self.loan
+
     def pool(self):
         return self.monthly_collection() * self.time
-    
+
     def _semi_automatic_assign(self, monthly_payouts, start_month, start_year):
-        """Generate full assignment from locked assignments + random fill"""
         locked = self.manual_assignments or {}
         assignments = {f"month_{i}": list(locked.get(f"month_{i}", [])) for i in range(self.time)}
         assigned = set()
@@ -296,11 +329,7 @@ class Njangi:
                     cnt = min(available // self.base, len(unpaid))
                     residue = available - cnt * self.base
                 paid_indices = unpaid[:cnt]
-                assigned_fruits_and_names = []
-                for idx in paid_indices:
-                    name = self.people[idx]
-                    fruit = self.fruits[idx]
-                    assigned_fruits_and_names.append((name, fruit))
+                assigned_fruits_and_names = [(self.people[idx], self.fruits[idx]) for idx in paid_indices]
                 assigned_fruits_and_names.sort(key=lambda x: x[1])
                 name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
                 display_list = name_only_display[:3]
@@ -311,6 +340,7 @@ class Njangi:
                     str(cnt), name_display
                 ])
                 unpaid = unpaid[cnt:]
+                
         elif self.assignment_mode == 'manual':
             for i in range(self.time):
                 month_idx = (start_month + i - 1) % 12 + 1
@@ -322,14 +352,8 @@ class Njangi:
                 assigned_indices = self.manual_assignments.get(month_key, [])
                 assigned_names = [self.people[idx] for idx in assigned_indices if idx < len(self.people)]
                 cnt = len(assigned_names)
-                if i == self.time - 1:
-                    residue = 0
-                else:
-                    residue = available - cnt * self.base
-                assigned_fruits_and_names = []
-                for name in assigned_names:
-                    fruit = self.participant_to_fruit_map.get(name, "N/A")
-                    assigned_fruits_and_names.append((name, fruit))
+                residue = 0 if i == self.time - 1 else available - cnt * self.base
+                assigned_fruits_and_names = [(name, self.participant_to_fruit_map.get(name, "N/A")) for name in assigned_names]
                 assigned_fruits_and_names.sort(key=lambda x: x[1])
                 name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
                 display_list = name_only_display[:3]
@@ -339,6 +363,7 @@ class Njangi:
                     f"{collected:,}", f"{available:,}", f"{residue:,}",
                     str(cnt), name_display
                 ])
+                
         else:  # semi-automatic
             try:
                 full_assignments = self._semi_automatic_assign(monthly_payouts, start_month, start_year)
@@ -354,14 +379,8 @@ class Njangi:
                 assigned_indices = full_assignments.get(month_key, [])
                 assigned_names = [self.people[idx] for idx in assigned_indices if idx < len(self.people)]
                 cnt = len(assigned_names)
-                if i == self.time - 1:
-                    residue = 0
-                else:
-                    residue = available - cnt * self.base
-                assigned_fruits_and_names = []
-                for name in assigned_names:
-                    fruit = self.participant_to_fruit_map.get(name, "N/A")
-                    assigned_fruits_and_names.append((name, fruit))
+                residue = 0 if i == self.time - 1 else available - cnt * self.base
+                assigned_fruits_and_names = [(name, self.participant_to_fruit_map.get(name, "N/A")) for name in assigned_names]
                 assigned_fruits_and_names.sort(key=lambda x: x[1])
                 name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
                 display_list = name_only_display[:3]
@@ -371,6 +390,7 @@ class Njangi:
                     f"{collected:,}", f"{available:,}", f"{residue:,}",
                     str(cnt), name_display
                 ])
+
         doc = SimpleDocTemplate(
             filename, pagesize=letter,
             leftMargin=50, rightMargin=50, topMargin=130, bottomMargin=70
@@ -389,6 +409,10 @@ class Njangi:
                                      spaceBefore=0, spaceAfter=12, leftIndent=-7, alignment=0))
         st_styles.add(ParagraphStyle('CellLeft', fontSize=9, fontName='Helvetica',
                                      textColor=colors.HexColor('#2C3E50'), alignment=0))
+        st_styles.add(ParagraphStyle('RulesText', fontSize=10, fontName='Helvetica',
+                                     textColor=colors.HexColor('#2C3E50'), alignment=0,
+                                     spaceBefore=6, spaceAfter=6, leftIndent=10, rightIndent=10))
+
         elems = [
             Paragraph(self.name, st_styles['TitleBig']),
             Paragraph(
@@ -400,6 +424,8 @@ class Njangi:
             Paragraph(f"Each member contributes: {self.loan:,} FCFA per month", st_styles['SubSmall']),
             Paragraph(f"Net payout per month per member: {self.base:,} FCFA", st_styles['SubSmall'])
         ]
+
+        # Assigned Fruits
         fruits_data = [["S/N", "Fruit"]] + [[str(i + 1), self.fruits[i]] for i in range(self.size)]
         t1 = Table(fruits_data, colWidths=[40, doc.width - 40])
         t1.setStyle(TableStyle([
@@ -411,6 +437,8 @@ class Njangi:
             ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#AED6F1')),
         ]))
         elems += [t1, PageBreak()]
+
+        # Participants & Fruits
         elems.append(Paragraph("Participants & Fruits", st_styles['SecTitle']))
         base_headers = ["S/N", "Name", "Fruit"]
         duration_headers = [
@@ -418,10 +446,10 @@ class Njangi:
             for i in range(self.time)
         ]
         headers = base_headers + duration_headers
-        pf = [[str(i + 1), self.people[i], self.fruits[i]] + [" "]*self.time for i in range(self.size)]
+        pf = [[str(i + 1), self.people[i], self.fruits[i]] + [" "] * self.time for i in range(self.size)]
         fixed_widths = [35, 120, 60]
         duration_width = max(15, (doc.width - sum(fixed_widths)) / self.time)
-        col_widths = fixed_widths + [duration_width]*self.time
+        col_widths = fixed_widths + [duration_width] * self.time
         t2 = Table([headers] + pf, colWidths=col_widths)
         t2.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#27AE60')),
@@ -434,11 +462,13 @@ class Njangi:
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ]))
         elems += [t2, PageBreak()]
+
+        # Payout Schedule
         elems.append(Paragraph("Payout Schedule", st_styles['SecTitle']))
         sched_headers = ["S/N", "Mon", "Col", "Avail", "Res", "Payouts", "Names (Fruit)"]
         t3 = Table([sched_headers] + schedule,
-                    colWidths=[35, 55, 60, 60, 60, 50, doc.width - 320],
-                    repeatRows=1)
+                   colWidths=[35, 55, 60, 60, 60, 50, doc.width - 320],
+                   repeatRows=1)
         t3.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E67E22')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -457,6 +487,40 @@ class Njangi:
             ('LEFTPADDING', (0, 1), (-1, -1), 4),
         ]))
         elems += [t3, Spacer(1, 12)]
+
+        # Rules Section (if provided)
+        if self.rules.strip():
+            elems.append(PageBreak())
+            elems.append(Paragraph("Njangi Rules", st_styles['SecTitle']))
+            for line in self.rules.strip().split('\n'):
+                if line.strip():
+                    elems.append(Paragraph(line.strip(), st_styles['RulesText']))
+
+        # Loan Summary (if enabled)
+        if self.has_loans and self.interest_rate > 0:
+            elems.append(PageBreak())
+            elems.append(Paragraph("Loan & Interest Summary", st_styles['SecTitle']))
+            monthly_interest = self.interest_rate / 100 / 12
+            total_repayment = self.loan * (1 + monthly_interest * self.loan_duration)
+            loan_summary = [
+                f"Base Loan Amount       : {self.loan:,} FCFA",
+                f"Interest Rate          : {self.interest_rate:.2f}% per annum",
+                f"Loan Duration          : {self.loan_duration} month(s)",
+                f"Total Repayment        : {total_repayment:,.0f} FCFA",
+                f"Extra Interest Earned  : {total_repayment - self.loan:,.0f} FCFA"
+            ]
+            loan_table = Table([[Paragraph(line, st_styles['CellLeft'])] for line in loan_summary],
+                               colWidths=[doc.width])
+            loan_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FDEBD0')),
+                ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#BA4A00')),
+                ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#FAD7A0')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elems.append(loan_table)
+
+        # Summary
+        elems.append(PageBreak())
         elems.append(Paragraph("Summary", st_styles['SecTitle']))
         summary_lines = [
             f"Payout per person     : {self.base:,}",
@@ -467,8 +531,11 @@ class Njangi:
             f"Total Payout          : {(self.base * self.size):,}",
             f"Residue at End        : 0"
         ]
+        if self.has_loans and self.interest_rate > 0:
+            total_interest = (total_repayment - self.loan) * self.size
+            summary_lines.append(f"Potential Interest Earned : {total_interest:,.0f} FCFA")
         sumt = Table([[Paragraph(line, st_styles['CellLeft'])] for line in summary_lines],
-                      colWidths=[doc.width])
+                     colWidths=[doc.width])
         sumt.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#D6EAF8')),
             ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#5499C7')),
@@ -476,6 +543,7 @@ class Njangi:
             ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ]))
         elems.append(sumt)
+
         def watermark(c, _doc):
             c.saveState()
             c.setFont("Helvetica-Bold", 70)
@@ -484,6 +552,7 @@ class Njangi:
             c.rotate(45)
             c.drawCentredString(0, 0, "auto-generated")
             c.restoreState()
+
         def header_footer(c, _doc):
             c.saveState()
             c.setStrokeColor(colors.HexColor('#3498DB'))
@@ -509,6 +578,7 @@ class Njangi:
             c.drawString(letter[0] - 50 - c.stringWidth(sig, "Helvetica", 8), 45, sig)
             c.restoreState()
             watermark(c, _doc)
+
         doc.build(elems, onFirstPage=header_footer, onLaterPages=header_footer)
         return filename
 
@@ -559,6 +629,14 @@ def initialize_session_state():
         st.session_state.assignment_mode = 'automatic'
     if 'manual_assignments' not in st.session_state:
         st.session_state.manual_assignments = {}
+    if 'rules' not in st.session_state:
+        st.session_state.rules = ""
+    if 'has_loans' not in st.session_state:
+        st.session_state.has_loans = False
+    if 'interest_rate' not in st.session_state:
+        st.session_state.interest_rate = 5.0
+    if 'loan_duration' not in st.session_state:
+        st.session_state.loan_duration = 3
 
 def reset_form():
     st.session_state.current_group_data = None
@@ -567,6 +645,10 @@ def reset_form():
     st.session_state.fruit_keys = {}
     st.session_state.assignment_mode = 'automatic'
     st.session_state.manual_assignments = {}
+    st.session_state.rules = ""
+    st.session_state.has_loans = False
+    st.session_state.interest_rate = 5.0
+    st.session_state.loan_duration = 3
     st.rerun()
 
 def load_group_data(group_data):
@@ -574,6 +656,10 @@ def load_group_data(group_data):
     st.session_state.participants = group_data['participants']
     st.session_state.fruits = group_data['fruits']
     st.session_state.fruit_keys = {f"fruit_{i}": fruit for i, fruit in enumerate(group_data['fruits'])}
+    st.session_state.rules = group_data.get('rules', "")
+    st.session_state.has_loans = group_data.get('has_loans', False)
+    st.session_state.interest_rate = group_data.get('interest_rate', 5.0)
+    st.session_state.loan_duration = group_data.get('loan_duration', 3)
     if group_data.get('manual_assignments'):
         st.session_state.manual_assignments = group_data['manual_assignments']
         st.session_state.assignment_mode = 'manual'
@@ -609,8 +695,10 @@ def main():
         initial_sidebar_state="expanded"
     )
     initialize_session_state()
+    
     st.title("👥 Njangi Group Report Generator")
     st.markdown("---")
+    
     with st.sidebar:
         st.header("📁 Saved Groups")
         saved_groups = st.session_state.db_manager.get_all_groups()
@@ -635,7 +723,6 @@ def main():
         st.divider()
         if st.button("🆕 New Group", use_container_width=True):
             reset_form()
-        # Save Progress in Sidebar (optional)
         if st.button("💾 Save Progress", use_container_width=True):
             nname = st.session_state.current_group_data['name'] if st.session_state.current_group_data else ""
             if not nname:
@@ -653,14 +740,21 @@ def main():
                     success = st.session_state.db_manager.save_group(
                         nname, size, loan, time, base, start_month, start_year,
                         st.session_state.participants, st.session_state.fruits,
-                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
+                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                        st.session_state.rules,
+                        st.session_state.has_loans,
+                        st.session_state.interest_rate,
+                        st.session_state.loan_duration
                     )
                     if success:
                         st.success("✅ Progress saved!")
                     else:
                         st.warning("⚠️ Group name already exists (updated progress)!")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Group Setup", "👥 Participants", "📋 Assignment", "📄 Generate"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📝 Group Setup", "👥 Participants", "📋 Assignment", "📜 Rules", "💰 Loans & Interest", "📄 Generate"
+    ])
+
     with tab1:
         st.subheader("Basic Group Information")
         col1, col2 = st.columns(2)
@@ -679,33 +773,34 @@ def main():
                                        format_func=lambda x: months[x], index=current_start_month-1)
             current_start_year = st.session_state.current_group_data['start_year'] if st.session_state.current_group_data else 2025
             start_year = st.number_input("Start Year", min_value=2025, max_value=2030, value=current_start_year, step=1)
+        
         if size < time:
             st.error("⚠️ Number of participants must be greater than or equal to duration in months!")
+        
         base = loan * time
         total_pool = size * loan * time
         st.info(f"💡 **Calculated Values:**\n"
                f"- Monthly Collection: {size * loan:,} FCFA\n"
                f"- Payout per Person: {base:,} FCFA\n"
                f"- Total Pool: {total_pool:,} FCFA")
-        
-        # ✅ NEW: Generate Fruit Sheet button
+
         if nname and size > 0:
             if st.button("📄 Generate Fruit Assignment Sheet", type="primary", use_container_width=True):
                 with st.spinner("Generating Fruit Sheet..."):
                     try:
-                        # Preserve existing fruits if available and size matches
                         if len(st.session_state.fruits) == size:
                             fruits = st.session_state.fruits
                         else:
                             fruits = random.sample(fruits_master, size)
                         success = st.session_state.db_manager.save_group(
                             nname, size, loan, time, base, start_month, start_year,
-                            [], fruits, None
+                            [], fruits, None, st.session_state.rules,
+                            st.session_state.has_loans, st.session_state.interest_rate, st.session_state.loan_duration
                         )
                         if success:
                             st.success("✅ Progress saved!")
                         filename = f"{nname.replace(' ', '_')}_fruit_sheet.pdf"
-                        generate_fruit_sheet_pdf(nname, fruits, filename)
+                        generate_fruit_sheet_pdf(nname, fruits, filename, start_month, start_year, time)
                         with open(filename, "rb") as f:
                             st.download_button(
                                 label="📥 Download Fruit Sheet",
@@ -728,7 +823,6 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**👥 Participants**")
-                # Preserve existing participants when size changes
                 if len(st.session_state.participants) != size:
                     current_participants = st.session_state.participants[:size]
                     while len(current_participants) < size:
@@ -742,7 +836,6 @@ def main():
                     )
             with col2:
                 st.markdown("**🍎 Fruit Assignment**")
-                # Preserve existing fruits when size changes
                 if len(st.session_state.fruits) != size:
                     current_fruits = st.session_state.fruits[:size]
                     used_fruits = set(current_fruits)
@@ -754,7 +847,7 @@ def main():
                         else:
                             current_fruits.append(f"fruit_{len(current_fruits)}")
                     st.session_state.fruits = current_fruits
-                current_used_fruits = set()
+                
                 for i in range(size):
                     fruits_assigned_before = st.session_state.fruits[:i]
                     available_options = [fruit for fruit in fruits_master if fruit not in fruits_assigned_before]
@@ -774,6 +867,7 @@ def main():
                         on_change=reassign_remaining_fruits,
                         args=(size, st.session_state.fruits, select_key)
                     )
+            
             st.markdown("---")
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -787,13 +881,16 @@ def main():
                     st.session_state.participants = [f"Member {i+1}" for i in range(size)]
                     st.rerun()
             with col3:
-                # ✅ RESTORED: Save Progress in Tab 2
                 if st.button("💾 Save Progress", use_container_width=True):
                     if nname and len(nname.strip()) > 0:
                         success = st.session_state.db_manager.save_group(
                             nname, size, loan, time, base, start_month, start_year,
                             st.session_state.participants, st.session_state.fruits,
-                            st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
+                            st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                            st.session_state.rules,
+                            st.session_state.has_loans,
+                            st.session_state.interest_rate,
+                            st.session_state.loan_duration
                         )
                         if success:
                             st.success("✅ Progress saved!")
@@ -801,6 +898,7 @@ def main():
                             st.warning("⚠️ Group name already exists (updated progress)!")
                     else:
                         st.error("❌ Please enter a group name first!")
+
     with tab3:
         st.subheader("Payout Assignment")
         if size > 0 and time > 0 and len(st.session_state.participants) == size:
@@ -828,8 +926,10 @@ def main():
                     st.session_state.assignment_mode = 'semi-automatic'
                     st.rerun()
                 st.caption("Lock some, auto-fill at PDF time")
+            
             st.markdown("---")
             monthly_payouts = calculate_monthly_payouts(size, loan, time, base)
+            
             if st.session_state.assignment_mode == 'automatic':
                 st.info("🎲 **Automatic Mode**: The system will randomly assign participants to months when generating the PDF.")
                 preview_data = []
@@ -852,20 +952,24 @@ def main():
                 st.success(f"{'✏️' if st.session_state.assignment_mode == 'manual' else '🔄'} **{st.session_state.assignment_mode.title()} Mode**: Assign participants below.")
                 if not st.session_state.manual_assignments:
                     st.session_state.manual_assignments = {f"month_{i}": [] for i in range(time)}
+                
                 display_names = []
                 name_count = {}
                 for i, name in enumerate(st.session_state.participants):
                     name_count[name] = name_count.get(name, 0) + 1
                     display_names.append(f"{name} [{name_count[name]}]")
+                
                 assigned_indices = set()
                 for assigned_list in st.session_state.manual_assignments.values():
                     assigned_indices.update(assigned_list)
                 unassigned_indices = [i for i in range(size) if i not in assigned_indices]
                 unassigned_display = [display_names[i] for i in unassigned_indices]
+                
                 st.metric("Remaining Unassigned", len(unassigned_indices), delta=f"{len(assigned_indices)} assigned")
                 if unassigned_display:
                     with st.expander("🔍 Unassigned Participants", expanded=True):
                         st.write(", ".join(unassigned_display))
+                
                 st.markdown("---")
                 for i in range(time):
                     month_idx = (start_month + i - 1) % 12 + 1
@@ -875,22 +979,26 @@ def main():
                     month_key = f"month_{i}"
                     current_assigned_indices = st.session_state.manual_assignments.get(month_key, [])
                     current_assigned_display = [display_names[idx] for idx in current_assigned_indices]
+                    
                     with st.expander(f"📅 Month {i+1}: {month_str} - Needs {required_count} | Assigned: {len(current_assigned_indices)}", 
                                     expanded=len(current_assigned_indices) < required_count):
                         if current_assigned_display:
                             st.markdown("**Locked Participants:**")
                             for idx_pos, disp_name in enumerate(current_assigned_display):
-                                # ✅ FINAL FIX: Single, perfectly aligned button
-                                col1, col2 = st.columns([9, 1])
-                                with col1:
+                                cols = st.columns([11, 1])
+                                with cols[0]:
                                     st.markdown(f"• {disp_name}")
-                                with col2:
+                                with cols[1]:
+                                    st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
                                     if st.button("❌", key=f"remove_{month_key}_{idx_pos}"):
                                         real_index = current_assigned_indices[idx_pos]
                                         st.session_state.manual_assignments[month_key].remove(real_index)
                                         st.rerun()
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                        
                         available_indices = [i for i in range(size) if i not in assigned_indices or i in current_assigned_indices]
                         available_display = [display_names[i] for i in available_indices if i not in current_assigned_indices]
+                        
                         if len(current_assigned_indices) < required_count and available_display:
                             action = "Lock" if st.session_state.assignment_mode == 'semi-automatic' else "Add"
                             st.markdown(f"**{action} Participant:**")
@@ -912,6 +1020,7 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(f"Too many! Month needs only {required_count} people.")
+                        
                         if len(current_assigned_indices) == required_count:
                             st.success(f"✅ Month {i+1} is full!")
                         elif len(current_assigned_indices) < required_count:
@@ -919,6 +1028,7 @@ def main():
                             st.info(f"ℹ️ Needs {required_count - len(current_assigned_indices)} more ({mode_msg})")
                         else:
                             st.error(f"❌ Overfilled! Remove {len(current_assigned_indices) - required_count}")
+                
                 st.markdown("---")
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -964,7 +1074,91 @@ def main():
                             st.error("❌ Overfilled month!")
         else:
             st.warning("⚠️ Please complete the Group Setup and Participants tabs first.")
+
     with tab4:
+        st.subheader("📜 Njangi Rules")
+        rules = st.text_area(
+            "Enter your group rules (one per line or paragraph):",
+            value=st.session_state.rules,
+            height=300,
+            help="E.g., Late payment penalty, attendance rules, dispute resolution, etc."
+        )
+        st.session_state.rules = rules
+        if st.button("💾 Save Rules", use_container_width=True):
+            if nname:
+                size = len(st.session_state.participants) or 1
+                loan = st.session_state.current_group_data['loan'] if st.session_state.current_group_data else 5000
+                time = st.session_state.current_group_data['time'] if st.session_state.current_group_data else 12
+                start_month = st.session_state.current_group_data['start_month'] if st.session_state.current_group_data else 7
+                start_year = st.session_state.current_group_data['start_year'] if st.session_state.current_group_data else 2025
+                base = loan * time
+                success = st.session_state.db_manager.save_group(
+                    nname, size, loan, time, base, start_month, start_year,
+                    st.session_state.participants, st.session_state.fruits,
+                    st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                    st.session_state.rules,
+                    st.session_state.has_loans,
+                    st.session_state.interest_rate,
+                    st.session_state.loan_duration
+                )
+                if success:
+                    st.success("✅ Rules saved!")
+                else:
+                    st.warning("⚠️ Group updated!")
+            else:
+                st.error("❌ Please enter a group name first!")
+
+    with tab5:
+        st.subheader("💰 Loans & Interest Settings")
+        st.markdown("Enable interest-based lending within your Njangi group.")
+        has_loans = st.checkbox("Enable Loans with Interest", value=st.session_state.has_loans)
+        st.session_state.has_loans = has_loans
+        if has_loans:
+            col1, col2 = st.columns(2)
+            with col1:
+                interest_rate = st.number_input(
+                    "Annual Interest Rate (%)",
+                    min_value=0.0, max_value=100.0, value=float(st.session_state.interest_rate), step=0.5,
+                    help="e.g., 5% per year"
+                )
+                st.session_state.interest_rate = interest_rate
+            with col2:
+                loan_duration = st.number_input(
+                    "Loan Duration (Months)",
+                    min_value=1, max_value=24, value=int(st.session_state.loan_duration), step=1,
+                    help="How long borrowers have to repay"
+                )
+                st.session_state.loan_duration = loan_duration
+
+            monthly_interest = interest_rate / 100 / 12
+            total_repayment = loan * (1 + monthly_interest * loan_duration)
+            st.info(f"💡 **Example**: A loan of {loan:,} FCFA will be repaid as **{total_repayment:,.0f} FCFA** after {loan_duration} month(s).")
+
+        if st.button("💾 Save Loan Settings", use_container_width=True):
+            if nname:
+                size = len(st.session_state.participants) or 1
+                loan = st.session_state.current_group_data['loan'] if st.session_state.current_group_data else 5000
+                time = st.session_state.current_group_data['time'] if st.session_state.current_group_data else 12
+                start_month = st.session_state.current_group_data['start_month'] if st.session_state.current_group_data else 7
+                start_year = st.session_state.current_group_data['start_year'] if st.session_state.current_group_data else 2025
+                base = loan * time
+                success = st.session_state.db_manager.save_group(
+                    nname, size, loan, time, base, start_month, start_year,
+                    st.session_state.participants, st.session_state.fruits,
+                    st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                    st.session_state.rules,
+                    st.session_state.has_loans,
+                    st.session_state.interest_rate,
+                    st.session_state.loan_duration
+                )
+                if success:
+                    st.success("✅ Loan settings saved!")
+                else:
+                    st.warning("⚠️ Group updated!")
+            else:
+                st.error("❌ Please enter a group name first!")
+
+    with tab6:
         st.subheader("Generate Njangi Report")
         if nname and size > 0 and time > 0 and len(st.session_state.participants) == size:
             unique_fruit_set = set(st.session_state.fruits)
@@ -1005,6 +1199,8 @@ def main():
                         'semi-automatic': '🔄 Semi-Automatic'
                     }
                     st.info(f"Using **{mode_display[st.session_state.assignment_mode]}** assignment mode")
+                    if st.session_state.has_loans:
+                        st.info(f"💰 **Loans enabled**: {st.session_state.interest_rate:.2f}% annual interest over {st.session_state.loan_duration} month(s)")
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         if st.button("📄 Generate PDF Report", type="primary", use_container_width=True):
@@ -1013,7 +1209,11 @@ def main():
                                     st.session_state.db_manager.save_group(
                                         nname, size, loan, time, base, start_month, start_year,
                                         st.session_state.participants, st.session_state.fruits,
-                                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
+                                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                                        st.session_state.rules,
+                                        st.session_state.has_loans,
+                                        st.session_state.interest_rate,
+                                        st.session_state.loan_duration
                                     )
                                     njangi = Njangi(
                                         size=size, loan=loan, time=time, base=base,
@@ -1021,7 +1221,11 @@ def main():
                                         fruits=st.session_state.fruits,
                                         name=nname,
                                         manual_assignments=st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
-                                        assignment_mode=st.session_state.assignment_mode
+                                        assignment_mode=st.session_state.assignment_mode,
+                                        rules=st.session_state.rules,
+                                        has_loans=st.session_state.has_loans,
+                                        interest_rate=st.session_state.interest_rate,
+                                        loan_duration=st.session_state.loan_duration
                                     )
                                     filename = f"{nname.replace(' ', '_')}_report.pdf"
                                     njangi.generate_pdf(filename=filename, start_month=start_month, start_year=start_year)
@@ -1041,7 +1245,11 @@ def main():
                             success = st.session_state.db_manager.save_group(
                                 nname, size, loan, time, base, start_month, start_year,
                                 st.session_state.participants, st.session_state.fruits,
-                                st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
+                                st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                                st.session_state.rules,
+                                st.session_state.has_loans,
+                                st.session_state.interest_rate,
+                                st.session_state.loan_duration
                             )
                             if success:
                                 st.success("✅ Group saved successfully!")
