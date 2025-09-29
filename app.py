@@ -145,12 +145,12 @@ class DatabaseManager:
         conn.close()
 
 class Njangi:
-    def __init__(self, size, loan, time, base=None, participants=None, fruits=None, name=None, manual_assignments=None):
+    def __init__(self, size, loan, time, base=None, participants=None, fruits=None, name=None, manual_assignments=None, assignment_mode='automatic'):
         self.name = name
         self.size, self.loan, self.time = size, loan, time
         self.base = loan * time if base is None else base
-        # manual_assignments now stores indices, not names
         self.manual_assignments = manual_assignments
+        self.assignment_mode = assignment_mode  # 'automatic', 'manual', or 'semi-automatic'
         if size < time:
             sys.exit("Error: size >= time")
         self.fruits = fruits if fruits else random.sample(fruits_master, size)
@@ -167,42 +167,37 @@ class Njangi:
         return self.size * self.loan
     def pool(self):
         return self.monthly_collection() * self.time
+    
+    def _semi_automatic_assign(self, monthly_payouts, start_month, start_year):
+        """Generate full assignment from locked assignments + random fill"""
+        locked = self.manual_assignments or {}
+        assignments = {f"month_{i}": list(locked.get(f"month_{i}", [])) for i in range(self.time)}
+        assigned = set()
+        for lst in assignments.values():
+            assigned.update(lst)
+        # Validate locked
+        for i in range(self.time):
+            if len(assignments[f"month_{i}"]) > monthly_payouts[i]:
+                raise ValueError(f"Too many locked participants in month {i+1}")
+        unassigned = [i for i in range(self.size) if i not in assigned]
+        random.shuffle(unassigned)
+        for i in range(self.time):
+            needed = monthly_payouts[i] - len(assignments[f"month_{i}"])
+            if needed > 0:
+                to_add = unassigned[:needed]
+                assignments[f"month_{i}"].extend(to_add)
+                unassigned = unassigned[needed:]
+        if unassigned:
+            raise ValueError("Not all participants assigned")
+        return assignments
+
     def generate_pdf(self, filename='njangi_pro_report.pdf', start_month=1, start_year=2025):
         schedule, residue = [], 0
-        if self.manual_assignments:
-            # manual_assignments contains indices
-            for i in range(self.time):
-                month_idx = (start_month + i - 1) % 12 + 1
-                year = start_year + ((start_month + i - 1) // 12)
-                month_str = f"{months[month_idx][:3]}-{year}"
-                collected = self.monthly_collection()
-                available = collected + residue
-                month_key = f"month_{i}"
-                assigned_indices = self.manual_assignments.get(month_key, [])
-                assigned_names = [self.people[idx] for idx in assigned_indices if idx < len(self.people)]
-                cnt = len(assigned_names)
-                if i == self.time - 1:
-                    residue = 0
-                else:
-                    residue = available - cnt * self.base
-                assigned_fruits_and_names = []
-                for name in assigned_names:
-                    fruit = self.participant_to_fruit_map.get(name, "N/A")
-                    assigned_fruits_and_names.append((name, fruit))
-                assigned_fruits_and_names.sort(key=lambda x: x[1])
-                name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
-                display_list = name_only_display[:3]
-                name_display = ", ".join(display_list) + (", ..." if len(name_only_display) > 3 else "")
-                schedule.append([
-                    str(i + 1), month_str,
-                    f"{collected:,}", f"{available:,}", f"{residue:,}",
-                    str(cnt), name_display
-                ])
-        else:
-            # Automatic mode unchanged
+        monthly_payouts = self._calculate_monthly_payouts()
+        
+        if self.assignment_mode == 'automatic':
             unpaid = list(range(self.size))
             random.shuffle(unpaid)
-            residue = 0
             for i in range(self.time):
                 month_idx = (start_month + i - 1) % 12 + 1
                 year = start_year + ((start_month + i - 1) // 12)
@@ -230,6 +225,66 @@ class Njangi:
                     str(cnt), name_display
                 ])
                 unpaid = unpaid[cnt:]
+        elif self.assignment_mode == 'manual':
+            for i in range(self.time):
+                month_idx = (start_month + i - 1) % 12 + 1
+                year = start_year + ((start_month + i - 1) // 12)
+                month_str = f"{months[month_idx][:3]}-{year}"
+                collected = self.monthly_collection()
+                available = collected + residue
+                month_key = f"month_{i}"
+                assigned_indices = self.manual_assignments.get(month_key, [])
+                assigned_names = [self.people[idx] for idx in assigned_indices if idx < len(self.people)]
+                cnt = len(assigned_names)
+                if i == self.time - 1:
+                    residue = 0
+                else:
+                    residue = available - cnt * self.base
+                assigned_fruits_and_names = []
+                for name in assigned_names:
+                    fruit = self.participant_to_fruit_map.get(name, "N/A")
+                    assigned_fruits_and_names.append((name, fruit))
+                assigned_fruits_and_names.sort(key=lambda x: x[1])
+                name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
+                display_list = name_only_display[:3]
+                name_display = ", ".join(display_list) + (", ..." if len(name_only_display) > 3 else "")
+                schedule.append([
+                    str(i + 1), month_str,
+                    f"{collected:,}", f"{available:,}", f"{residue:,}",
+                    str(cnt), name_display
+                ])
+        else:  # semi-automatic
+            try:
+                full_assignments = self._semi_automatic_assign(monthly_payouts, start_month, start_year)
+            except Exception as e:
+                raise RuntimeError(f"Semi-automatic assignment failed: {str(e)}")
+            for i in range(self.time):
+                month_idx = (start_month + i - 1) % 12 + 1
+                year = start_year + ((start_month + i - 1) // 12)
+                month_str = f"{months[month_idx][:3]}-{year}"
+                collected = self.monthly_collection()
+                available = collected + residue
+                month_key = f"month_{i}"
+                assigned_indices = full_assignments.get(month_key, [])
+                assigned_names = [self.people[idx] for idx in assigned_indices if idx < len(self.people)]
+                cnt = len(assigned_names)
+                if i == self.time - 1:
+                    residue = 0
+                else:
+                    residue = available - cnt * self.base
+                assigned_fruits_and_names = []
+                for name in assigned_names:
+                    fruit = self.participant_to_fruit_map.get(name, "N/A")
+                    assigned_fruits_and_names.append((name, fruit))
+                assigned_fruits_and_names.sort(key=lambda x: x[1])
+                name_only_display = [f"{name}" for name, fruit in assigned_fruits_and_names]
+                display_list = name_only_display[:3]
+                name_display = ", ".join(display_list) + (", ..." if len(name_only_display) > 3 else "")
+                schedule.append([
+                    str(i + 1), month_str,
+                    f"{collected:,}", f"{available:,}", f"{residue:,}",
+                    str(cnt), name_display
+                ])
         doc = SimpleDocTemplate(
             filename, pagesize=letter,
             leftMargin=50, rightMargin=50, topMargin=130, bottomMargin=70
@@ -370,6 +425,22 @@ class Njangi:
             watermark(c, _doc)
         doc.build(elems, onFirstPage=header_footer, onLaterPages=header_footer)
         return filename
+
+    def _calculate_monthly_payouts(self):
+        monthly_payouts = []
+        residue = 0
+        remaining_people = self.size
+        for i in range(self.time):
+            collected = self.size * self.loan
+            available = collected + residue
+            if i == self.time - 1:
+                cnt, residue = remaining_people, 0
+            else:
+                cnt = min(available // self.base, remaining_people)
+                residue = available - cnt * self.base
+            monthly_payouts.append(cnt)
+            remaining_people -= cnt
+        return monthly_payouts
 
 def calculate_monthly_payouts(size, loan, time, base):
     monthly_payouts = []
@@ -569,7 +640,7 @@ def main():
                         success = st.session_state.db_manager.save_group(
                             nname, size, loan, time, base, start_month, start_year,
                             st.session_state.participants, st.session_state.fruits,
-                            st.session_state.manual_assignments if st.session_state.assignment_mode == 'manual' else None
+                            st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
                         )
                         if success:
                             st.success("✅ Progress saved!")
@@ -581,26 +652,33 @@ def main():
         st.subheader("Payout Assignment")
         if size > 0 and time > 0 and len(st.session_state.participants) == size:
             st.markdown("### Choose Assignment Method")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("🎲 Automatic Assignment", 
+                if st.button("🎲 Automatic", 
                             type="primary" if st.session_state.assignment_mode == 'automatic' else "secondary",
                             use_container_width=True):
                     st.session_state.assignment_mode = 'automatic'
                     st.session_state.manual_assignments = {}
                     st.rerun()
-                st.caption("Let the system randomly assign participants to months")
+                st.caption("Fully automatic")
             with col2:
-                if st.button("✏️ Manual Assignment", 
+                if st.button("✏️ Manual", 
                             type="primary" if st.session_state.assignment_mode == 'manual' else "secondary",
                             use_container_width=True):
                     st.session_state.assignment_mode = 'manual'
                     st.rerun()
-                st.caption("Manually assign participants to each month")
+                st.caption("Full manual control")
+            with col3:
+                if st.button("🔄 Semi-Auto", 
+                            type="primary" if st.session_state.assignment_mode == 'semi-automatic' else "secondary",
+                            use_container_width=True):
+                    st.session_state.assignment_mode = 'semi-automatic'
+                    st.rerun()
+                st.caption("Lock some, auto-fill at PDF time")
             st.markdown("---")
+            monthly_payouts = calculate_monthly_payouts(size, loan, time, base)
             if st.session_state.assignment_mode == 'automatic':
                 st.info("🎲 **Automatic Mode**: The system will randomly assign participants to months when generating the PDF.")
-                monthly_payouts = calculate_monthly_payouts(size, loan, time, base)
                 preview_data = []
                 for i, cnt in enumerate(monthly_payouts):
                     month_idx = (start_month + i - 1) % 12 + 1
@@ -610,31 +688,23 @@ def main():
                 preview_table = [["Month #", "Period", "People Getting Paid"]] + preview_data
                 st.table(preview_table)
             else:
-                st.success("✏️ **Manual Mode**: Assign participants to each month below.")
-                monthly_payouts = calculate_monthly_payouts(size, loan, time, base)
+                st.success(f"{'✏️' if st.session_state.assignment_mode == 'manual' else '🔄'} **{st.session_state.assignment_mode.title()} Mode**: Assign participants below.")
                 if not st.session_state.manual_assignments:
                     st.session_state.manual_assignments = {f"month_{i}": [] for i in range(time)}
-                
-                # Build display names: "Name [1]", "Name [2]" based on index
                 display_names = []
                 name_count = {}
                 for i, name in enumerate(st.session_state.participants):
                     name_count[name] = name_count.get(name, 0) + 1
                     display_names.append(f"{name} [{name_count[name]}]")
-
-                # Track assigned indices
                 assigned_indices = set()
                 for assigned_list in st.session_state.manual_assignments.values():
                     assigned_indices.update(assigned_list)
-                
                 unassigned_indices = [i for i in range(size) if i not in assigned_indices]
                 unassigned_display = [display_names[i] for i in unassigned_indices]
-
                 st.metric("Remaining Unassigned", len(unassigned_indices), delta=f"{len(assigned_indices)} assigned")
                 if unassigned_display:
                     with st.expander("🔍 Unassigned Participants", expanded=True):
                         st.write(", ".join(unassigned_display))
-                
                 st.markdown("---")
                 for i in range(time):
                     month_idx = (start_month + i - 1) % 12 + 1
@@ -644,39 +714,33 @@ def main():
                     month_key = f"month_{i}"
                     current_assigned_indices = st.session_state.manual_assignments.get(month_key, [])
                     current_assigned_display = [display_names[idx] for idx in current_assigned_indices]
-
-                    with st.expander(f"📅 Month {i+1}: {month_str} - Needs {required_count} people | Assigned: {len(current_assigned_indices)}", 
+                    with st.expander(f"📅 Month {i+1}: {month_str} - Needs {required_count} | Assigned: {len(current_assigned_indices)}", 
                                     expanded=len(current_assigned_indices) < required_count):
                         if current_assigned_display:
-                            st.markdown("**Currently Assigned:**")
+                            st.markdown("**Locked Participants:**")
                             for idx_pos, disp_name in enumerate(current_assigned_display):
                                 col1, col2 = st.columns([4, 1])
                                 with col1:
                                     st.text(f"• {disp_name}")
                                 with col2:
                                     if st.button("❌", key=f"remove_{month_key}_{idx_pos}"):
-                                        # Remove by position in current list
                                         real_index = current_assigned_indices[idx_pos]
                                         st.session_state.manual_assignments[month_key].remove(real_index)
                                         st.rerun()
-
-                        # Available: unassigned + those already in this month
                         available_indices = [i for i in range(size) if i not in assigned_indices or i in current_assigned_indices]
                         available_display = [display_names[i] for i in available_indices if i not in current_assigned_indices]
-
                         if len(current_assigned_indices) < required_count and available_display:
-                            st.markdown("**Add Participant:**")
+                            action = "Lock" if st.session_state.assignment_mode == 'semi-automatic' else "Add"
+                            st.markdown(f"**{action} Participant:**")
                             selected_display = st.multiselect(
                                 "Select participants",
                                 options=sorted(available_display),
                                 key=f"select_{month_key}",
-                                help=f"Select up to {required_count - len(current_assigned_indices)} more participants"
+                                help=f"Select up to {required_count - len(current_assigned_indices)} participants"
                             )
-                            if st.button(f"✅ Add Selected to {month_str}", key=f"add_{month_key}"):
-                                # Map display back to index
+                            if st.button(f"🔒 {action} to {month_str}", key=f"lock_{month_key}"):
                                 selected_indices = []
                                 for disp in selected_display:
-                                    # Find index with this display name that is not already assigned globally
                                     for idx, d in enumerate(display_names):
                                         if d == disp and (idx not in assigned_indices or idx in current_assigned_indices):
                                             selected_indices.append(idx)
@@ -685,35 +749,36 @@ def main():
                                     st.session_state.manual_assignments[month_key].extend(selected_indices)
                                     st.rerun()
                                 else:
-                                    st.error(f"Too many participants! Month needs only {required_count} people.")
-
+                                    st.error(f"Too many! Month needs only {required_count} people.")
                         if len(current_assigned_indices) == required_count:
-                            st.success(f"✅ Month {i+1} is complete!")
+                            st.success(f"✅ Month {i+1} is full!")
                         elif len(current_assigned_indices) < required_count:
-                            st.warning(f"⚠️ Need {required_count - len(current_assigned_indices)} more participants")
+                            mode_msg = "will be auto-filled at PDF time" if st.session_state.assignment_mode == 'semi-automatic' else "more participants"
+                            st.info(f"ℹ️ Needs {required_count - len(current_assigned_indices)} more ({mode_msg})")
                         else:
-                            st.error(f"❌ Too many participants! Remove {len(current_assigned_indices) - required_count}")
-
+                            st.error(f"❌ Overfilled! Remove {len(current_assigned_indices) - required_count}")
                 st.markdown("---")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button("🔄 Auto-fill Remaining", use_container_width=True):
-                        remaining = [i for i in range(size) if i not in assigned_indices]
-                        random.shuffle(remaining)
-                        for i in range(time):
-                            month_key = f"month_{i}"
-                            required = monthly_payouts[i]
-                            current = len(st.session_state.manual_assignments.get(month_key, []))
-                            needed = required - current
-                            if needed > 0 and remaining:
-                                to_add = remaining[:needed]
-                                if month_key not in st.session_state.manual_assignments:
-                                    st.session_state.manual_assignments[month_key] = []
-                                st.session_state.manual_assignments[month_key].extend(to_add)
-                                remaining = remaining[needed:]
-                        st.rerun()
+                    # NO auto-fill button for semi-automatic
+                    if st.session_state.assignment_mode == 'manual':
+                        if st.button("🔄 Auto-fill Remaining", use_container_width=True):
+                            remaining = [i for i in range(size) if i not in assigned_indices]
+                            random.shuffle(remaining)
+                            for i in range(time):
+                                month_key = f"month_{i}"
+                                required = monthly_payouts[i]
+                                current = len(st.session_state.manual_assignments.get(month_key, []))
+                                needed = required - current
+                                if needed > 0 and remaining:
+                                    to_add = remaining[:needed]
+                                    if month_key not in st.session_state.manual_assignments:
+                                        st.session_state.manual_assignments[month_key] = []
+                                    st.session_state.manual_assignments[month_key].extend(to_add)
+                                    remaining = remaining[needed:]
+                            st.rerun()
                 with col2:
-                    if st.button("🧹 Clear All Assignments", use_container_width=True):
+                    if st.button("🧹 Clear All", use_container_width=True):
                         st.session_state.manual_assignments = {f"month_{i}": [] for i in range(time)}
                         st.rerun()
                 with col3:
@@ -722,14 +787,20 @@ def main():
                     for i in range(time):
                         month_key = f"month_{i}"
                         assigned = st.session_state.manual_assignments.get(month_key, [])
-                        if len(assigned) != monthly_payouts[i]:
+                        if len(assigned) > monthly_payouts[i]:  # Allow under-assignment in semi-auto
                             all_valid = False
                             break
                         total_assigned.update(assigned)
-                    if all_valid and len(total_assigned) == size:
-                        st.success("✅ All assignments valid!")
-                    else:
-                        st.error("❌ Invalid assignments")
+                    if st.session_state.assignment_mode == 'manual':
+                        if all_valid and len(total_assigned) == size:
+                            st.success("✅ All assignments valid!")
+                        else:
+                            st.error("❌ Invalid assignments")
+                    else:  # semi-automatic: only check over-assignment
+                        if all_valid:
+                            st.success("✅ Locked assignments valid!")
+                        else:
+                            st.error("❌ Overfilled month!")
         else:
             st.warning("⚠️ Please complete the Group Setup and Participants tabs first.")
     with tab4:
@@ -738,22 +809,22 @@ def main():
             unique_fruit_set = set(st.session_state.fruits)
             duplicate_fruits = len(st.session_state.fruits) != len(unique_fruit_set)
             manual_valid = True
-            if st.session_state.assignment_mode == 'manual':
+            if st.session_state.assignment_mode in ['manual', 'semi-automatic']:
                 monthly_payouts = calculate_monthly_payouts(size, loan, time, base)
                 total_assigned = set()
                 for i in range(time):
                     month_key = f"month_{i}"
                     assigned = st.session_state.manual_assignments.get(month_key, [])
-                    if len(assigned) != monthly_payouts[i]:
+                    if len(assigned) > monthly_payouts[i]:
                         manual_valid = False
                         break
                     total_assigned.update(assigned)
-                if len(total_assigned) != size:
+                if st.session_state.assignment_mode == 'manual' and len(total_assigned) != size:
                     manual_valid = False
             if duplicate_fruits:
                 st.error("❌ Duplicate fruits found! Please ensure all fruits are unique.")
-            elif st.session_state.assignment_mode == 'manual' and not manual_valid:
-                st.error("❌ Manual assignments are incomplete or invalid! Please complete the Assignment tab.")
+            elif st.session_state.assignment_mode in ['manual', 'semi-automatic'] and not manual_valid:
+                st.error("❌ Assignments invalid! Please fix in Assignment tab.")
             else:
                 st.success("✅ All validations passed!")
                 with st.expander("📊 Group Summary", expanded=True):
@@ -767,10 +838,12 @@ def main():
                     with col3:
                         st.metric("💼 Total Pool", f"{size * loan * time:,} FCFA")
                         st.metric("📥 Monthly Collection", f"{size * loan:,} FCFA")
-                    if st.session_state.assignment_mode == 'automatic':
-                        st.info("🎲 Using **Automatic** assignment mode")
-                    else:
-                        st.success("✏️ Using **Manual** assignment mode")
+                    mode_display = {
+                        'automatic': '🎲 Automatic',
+                        'manual': '✏️ Manual',
+                        'semi-automatic': '🔄 Semi-Automatic'
+                    }
+                    st.info(f"Using **{mode_display[st.session_state.assignment_mode]}** assignment mode")
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         if st.button("📄 Generate PDF Report", type="primary", use_container_width=True):
@@ -779,14 +852,15 @@ def main():
                                     st.session_state.db_manager.save_group(
                                         nname, size, loan, time, base, start_month, start_year,
                                         st.session_state.participants, st.session_state.fruits,
-                                        st.session_state.manual_assignments if st.session_state.assignment_mode == 'manual' else None
+                                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
                                     )
                                     njangi = Njangi(
                                         size=size, loan=loan, time=time, base=base,
                                         participants=st.session_state.participants,
                                         fruits=st.session_state.fruits,
                                         name=nname,
-                                        manual_assignments=st.session_state.manual_assignments if st.session_state.assignment_mode == 'manual' else None
+                                        manual_assignments=st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None,
+                                        assignment_mode=st.session_state.assignment_mode
                                     )
                                     filename = f"{nname.replace(' ', '_')}_report.pdf"
                                     njangi.generate_pdf(filename=filename, start_month=start_month, start_year=start_year)
@@ -806,7 +880,7 @@ def main():
                             success = st.session_state.db_manager.save_group(
                                 nname, size, loan, time, base, start_month, start_year,
                                 st.session_state.participants, st.session_state.fruits,
-                                st.session_state.manual_assignments if st.session_state.assignment_mode == 'manual' else None
+                                st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
                             )
                             if success:
                                 st.success("✅ Group saved successfully!")
