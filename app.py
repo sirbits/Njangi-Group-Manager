@@ -175,7 +175,6 @@ class Njangi:
         assigned = set()
         for lst in assignments.values():
             assigned.update(lst)
-        # Validate locked
         for i in range(self.time):
             if len(assignments[f"month_{i}"]) > monthly_payouts[i]:
                 raise ValueError(f"Too many locked participants in month {i+1}")
@@ -549,6 +548,31 @@ def main():
         st.divider()
         if st.button("🆕 New Group", use_container_width=True):
             reset_form()
+        # Save Progress in Sidebar (optional)
+        if st.button("💾 Save Progress", use_container_width=True):
+            nname = st.session_state.current_group_data['name'] if st.session_state.current_group_data else ""
+            if not nname:
+                st.warning("⚠️ Please enter a group name first!")
+            else:
+                size = len(st.session_state.participants)
+                if size == 0:
+                    st.warning("⚠️ Please complete group setup first!")
+                else:
+                    loan = st.session_state.current_group_data['loan'] if st.session_state.current_group_data else 5000
+                    time = st.session_state.current_group_data['time'] if st.session_state.current_group_data else 12
+                    start_month = st.session_state.current_group_data['start_month'] if st.session_state.current_group_data else 7
+                    start_year = st.session_state.current_group_data['start_year'] if st.session_state.current_group_data else 2025
+                    base = loan * time
+                    success = st.session_state.db_manager.save_group(
+                        nname, size, loan, time, base, start_month, start_year,
+                        st.session_state.participants, st.session_state.fruits,
+                        st.session_state.manual_assignments if st.session_state.assignment_mode in ['manual', 'semi-automatic'] else None
+                    )
+                    if success:
+                        st.success("✅ Progress saved!")
+                    else:
+                        st.warning("⚠️ Group name already exists (updated progress)!")
+
     tab1, tab2, tab3, tab4 = st.tabs(["📝 Group Setup", "👥 Participants", "📋 Assignment", "📄 Generate"])
     with tab1:
         st.subheader("Basic Group Information")
@@ -635,6 +659,7 @@ def main():
                     st.session_state.participants = [f"Member {i+1}" for i in range(size)]
                     st.rerun()
             with col3:
+                # ✅ RESTORED: Save Progress in Tab 2
                 if st.button("💾 Save Progress", use_container_width=True):
                     if nname and len(nname.strip()) > 0:
                         success = st.session_state.db_manager.save_group(
@@ -685,8 +710,16 @@ def main():
                     year = start_year + ((start_month + i - 1) // 12)
                     month_str = f"{months[month_idx]} {year}"
                     preview_data.append([str(i+1), month_str, str(cnt)])
-                preview_table = [["Month #", "Period", "People Getting Paid"]] + preview_data
-                st.table(preview_table)
+                st.dataframe(
+                    preview_data,
+                    column_config={
+                        "0": "Month #",
+                        "1": "Period",
+                        "2": "People Getting Paid"
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
             else:
                 st.success(f"{'✏️' if st.session_state.assignment_mode == 'manual' else '🔄'} **{st.session_state.assignment_mode.title()} Mode**: Assign participants below.")
                 if not st.session_state.manual_assignments:
@@ -719,9 +752,10 @@ def main():
                         if current_assigned_display:
                             st.markdown("**Locked Participants:**")
                             for idx_pos, disp_name in enumerate(current_assigned_display):
-                                col1, col2 = st.columns([4, 1])
+                                # ✅ FINAL FIX: Single, perfectly aligned button
+                                col1, col2 = st.columns([9, 1])
                                 with col1:
-                                    st.text(f"• {disp_name}")
+                                    st.markdown(f"• {disp_name}")
                                 with col2:
                                     if st.button("❌", key=f"remove_{month_key}_{idx_pos}"):
                                         real_index = current_assigned_indices[idx_pos]
@@ -760,7 +794,6 @@ def main():
                 st.markdown("---")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    # NO auto-fill button for semi-automatic
                     if st.session_state.assignment_mode == 'manual':
                         if st.button("🔄 Auto-fill Remaining", use_container_width=True):
                             remaining = [i for i in range(size) if i not in assigned_indices]
@@ -787,7 +820,7 @@ def main():
                     for i in range(time):
                         month_key = f"month_{i}"
                         assigned = st.session_state.manual_assignments.get(month_key, [])
-                        if len(assigned) > monthly_payouts[i]:  # Allow under-assignment in semi-auto
+                        if len(assigned) > monthly_payouts[i]:
                             all_valid = False
                             break
                         total_assigned.update(assigned)
@@ -796,7 +829,7 @@ def main():
                             st.success("✅ All assignments valid!")
                         else:
                             st.error("❌ Invalid assignments")
-                    else:  # semi-automatic: only check over-assignment
+                    else:
                         if all_valid:
                             st.success("✅ Locked assignments valid!")
                         else:
