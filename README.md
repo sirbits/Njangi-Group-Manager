@@ -1,6 +1,6 @@
 # Njangi Group Manager
 
-A comprehensive web application for managing Njangi groups (rotating savings and credit associations) with automated payout scheduling and professional PDF report generation.
+A comprehensive web application for managing Njangi groups (rotating savings and credit associations) with automated payout scheduling, flexible assignment modes, and professional PDF report generation.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -21,9 +21,10 @@ Njangi Group Manager is a Streamlit-based web application designed to streamline
 
 The application addresses common challenges in Njangi group management including:
 - Manual calculation errors in payout schedules
-- Participant tracking and assignment conflicts
+- Participant tracking and assignment conflicts (especially with duplicate names)
 - Professional documentation and reporting
 - Data persistence and group configuration management
+- Flexible assignment strategies for different group needs
 
 ## Features
 
@@ -35,6 +36,11 @@ The application addresses common challenges in Njangi group management including
 - **Data Persistence**: SQLite-based storage for group configurations and historical data
 
 ### Advanced Features
+- **Three Assignment Modes**:
+  - **Automatic**: Fully random assignment generated at PDF creation time
+  - **Manual**: Complete user control over all participant assignments
+  - **Semi-Automatic**: Lock specific participants to months, with remaining spots filled randomly at PDF generation
+- **Duplicate Name Handling**: Intelligent UI with `[1]`, `[2]` suffixes for identical names during assignment, while preserving original names in PDF output
 - **Interactive Fruit Assignment**: Real-time constraint validation preventing duplicate assignments
 - **Flexible Group Parameters**: Configurable group sizes, contribution amounts, and cycle durations
 - **Comprehensive Validation**: Input validation with user feedback and error prevention
@@ -53,7 +59,6 @@ Install the required packages using pip:
 ```bash
 pip install streamlit
 pip install reportlab
-pip install sqlite3
 ```
 
 Or install from requirements file:
@@ -117,7 +122,27 @@ The fruit assignment system ensures:
 - Interactive reassignment when conflicts occur
 - Visual feedback for assignment status
 
-#### 3. Report Generation
+#### 3. Assignment Mode Selection
+Choose the appropriate assignment strategy:
+
+- **Automatic Mode**: 
+  - System randomly assigns participants to months when generating PDF
+  - No manual intervention required
+  - Perfect for groups wanting complete automation
+
+- **Manual Mode**: 
+  - Full control over every participant assignment
+  - Handles duplicate names with `[1]`, `[2]` suffixes in UI
+  - PDF shows only original names
+  - All participants must be assigned before PDF generation
+
+- **Semi-Automatic Mode**: 
+  - Lock specific participants to specific months
+  - Remaining spots are filled randomly at PDF generation time
+  - Perfect balance of control and automation
+  - Each PDF generation produces a new random assignment for unlocked spots
+
+#### 4. Report Generation
 Create professional documentation:
 - **Validation Checks**: Comprehensive input validation
 - **Summary Preview**: Pre-generation group metrics review
@@ -141,6 +166,7 @@ Core business logic implementation:
 - Schedule generation
 - PDF report compilation
 - Participant management with duplicate handling
+- Semi-automatic assignment logic
 
 #### Streamlit Interface
 Multi-tab interface providing:
@@ -153,9 +179,15 @@ Multi-tab interface providing:
 
 #### Unique Participant Handling
 The application implements sophisticated duplicate name handling:
-- Internal unique identifier generation
-- Display name preservation for PDF output
+- Internal unique identifier generation using indices
+- Display name preservation for PDF output (original names only)
 - Conflict resolution in payout assignments
+- `[1]`, `[2]` suffixes shown only in UI for clarity
+
+#### Assignment Mode Logic
+- **Automatic**: Random shuffle of all participants at PDF generation
+- **Manual**: User-defined assignments stored as participant indices
+- **Semi-Automatic**: Locked assignments preserved, remaining participants randomly shuffled and assigned at PDF generation
 
 #### Fruit Assignment Logic
 Interactive constraint system ensuring:
@@ -178,6 +210,7 @@ Interactive constraint system ensuring:
 | start_year | INTEGER | Starting year |
 | participants | TEXT | JSON array of participant names |
 | fruits | TEXT | JSON array of assigned fruits |
+| manual_assignments | TEXT | JSON object of manual/semi-auto assignments (by index) |
 | created_at | TIMESTAMP | Creation timestamp |
 | updated_at | TIMESTAMP | Last modification timestamp |
 
@@ -200,7 +233,7 @@ Generated reports include five main sections:
    - Monthly collections
    - Available funds
    - Number of payouts
-   - Recipient names
+   - Recipient names (original names only, no `[1]`, `[2]` suffixes)
    - Residue calculations
 5. **Summary Section**: Financial totals and key metrics
 
@@ -210,6 +243,7 @@ Generated reports include five main sections:
 - Automatic page breaks and formatting
 - Watermark protection
 - Comprehensive financial summaries
+- Consistent output regardless of assignment mode used
 
 ## Configuration
 
@@ -255,12 +289,15 @@ Modify calculation formulas in the Njangi class:
 - `monthly_collection()`: Calculate monthly total
 - `pool()`: Calculate total pool value
 - `generate_pdf()`: Create comprehensive report
+- `_semi_automatic_assign()`: Generate semi-automatic assignments
 
 ### Session State Variables
 - `current_group_data`: Active group configuration
 - `participants`: Participant name list
 - `fruits`: Assigned fruit list
 - `fruit_keys`: Fruit assignment tracking
+- `assignment_mode`: Current mode ('automatic', 'manual', 'semi-automatic')
+- `manual_assignments`: Assignment data stored as participant indices
 
 ## Development
 
