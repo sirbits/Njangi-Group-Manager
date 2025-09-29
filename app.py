@@ -456,7 +456,7 @@ class Njangi:
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-            ('ALIGN', (2, 1), (2, -1), 'CENTER'),
+            ('ALIGN', (2, 1), (2, -1), 'LEFT'),
             ('LEFTPADDING', (0, 1), (-1, -1), 2),
             ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#ABEBC6')),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
